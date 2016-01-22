@@ -123,7 +123,7 @@ if __name__ == "__main__":
 	pk12CertFile.write(pk12Cert.export(passphrase=certPass))
 	pk12CertFile.close()
 
-	#Create subdirectroy for host and move all generated and downloaded files
+	#Create subdirectory for host and move all generated and downloaded files
 	os.mkdir(fileName)
 	shutil.move(fileName + '.pfx', fileName + '/' + fileName + '.pfx')
 	shutil.move(fileName + '.crt', fileName + '/' + fileName + '.crt')
