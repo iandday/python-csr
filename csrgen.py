@@ -1,118 +1,134 @@
 #!/usr/bin/env python
+# python-csr
+# Generate a key and certificate request to receive a StartSSL signed certificate.
+# Final created directory will contain:
+# 	private key file
+# 	CSR file
+# 	StartSSL signed certificates
+# 	PKCS12 certificate suitable for use by Sophos UTM.
 #
-# Generate a key, self-signed certificate, and certificate request.
-# Usage: csrgen <fqdn>
-# 
-# When more than one hostname is provided, a SAN (Subject Alternate Name)
-# certificate and request are generated.  This can be acheived by adding -s.
-# Usage: csrgen <hostname> -s <san0> <san1>
+# Forked from: https://github.com/cjcotton/python-csr
 #
-# Author: Courtney Cotton <cotton@cottoncourtney.com> 06-25-2014
+# Usage: csrgen [fqdn]
+# Author: Ian Day <iandday@gmail.com> 20160122
 
-# Libraries/Modules
+
+
+
+# Modules
 from OpenSSL import crypto, SSL
-import subprocess, os, sys, shutil
+from cStringIO import StringIO
+import os
+import shutil
 import argparse
+import zipfile
+import getpass
+import time
 
-# Generate Certificate Signing Request (CSR)
-def generateCSR(nodename, sans = []):
 
-  while True:
-    C  = raw_input("Enter your Country Name (2 letter code) [US]: ")
-    if len(C) != 2:
-      print "You must enter two letters. You entered %r" % (C)
-      continue
-    ST = raw_input("Enter your State or Province <full name> []:California: ")
-    if len(ST) == 0:
-      print "Please enter your State or Province."
-      continue
-    L  = raw_input("Enter your (Locality Name (eg, city) []:San Francisco: ")
-    if len(L) == 0:
-      print "Please enter your City."
-      continue
-    O  = raw_input("Enter your Organization Name (eg, company) []:FTW Enterprise: ")
-    if len(L) == 0:
-       print "Please enter your Organization Name."
-       continue
-    OU = raw_input("Enter your Organizational Unit (eg, section) []:IT: ")
-    if len(OU) == 0:
-      print "Please enter your OU."
-      continue
-    
-    # Allows you to permanently set values required for CSR
-    # To use, comment raw_input and uncomment this section.
-    # C  = 'US'
-    # ST = 'New York'
-    # L  = 'Location'
-    # O  = 'Organization'
-    # OU = 'Organizational Unit'
-
-    csrfile = 'host.csr'
-    keyfile = 'host.key'
-    TYPE_RSA = crypto.TYPE_RSA
-    # Appends SAN to have 'DNS:'
-    ss = []
-    for i in sans:
-        ss.append("DNS: %s" % i)
-    ss = ", ".join(ss)
-
-    req = crypto.X509Req()
-    req.get_subject().CN = nodename
-    req.get_subject().countryName = C
-    req.get_subject().stateOrProvinceName = ST
-    req.get_subject().localityName = L
-    req.get_subject().organizationName = O
-    req.get_subject().organizationalUnitName = OU
-    # Add in extensions
-    base_constraints = ([
+def generateCSR(nodename):
+	'''Generates certificate signing request to submit to StartSSL
+	   Modify below variables before running script
+	   Country
+	   State
+	   Location
+	   Organization
+	   Organizationl Unit'''
+	C  = 'US'          
+	ST = 'Ohio'       
+	L  = 'Columbus'   
+	O  = 'Daynet'      
+	OU = 'Daynet'
+	csrfile = str(nodename) + '.csr'
+	keyfile = str(nodename) + '.key'
+	TYPE_RSA = crypto.TYPE_RSA
+	req = crypto.X509Req()
+	req.get_subject().CN = nodename
+	req.get_subject().countryName = C
+	req.get_subject().stateOrProvinceName = ST
+	req.get_subject().localityName = L
+	req.get_subject().organizationName = O
+	req.get_subject().organizationalUnitName = OU
+	# Add in extensions
+	base_constraints = ([
         crypto.X509Extension("keyUsage", False, "Digital Signature, Non Repudiation, Key Encipherment"),
-        crypto.X509Extension("basicConstraints", False, "CA:FALSE"),
-    ])
-    x509_extensions = base_constraints
-    # If there are SAN entries, append the base_constraints to include them.
-    if ss:
-        san_constraint = crypto.X509Extension("subjectAltName", False, ss)
-        x509_extensions.append(san_constraint)
-    req.add_extensions(x509_extensions)
-    # Utilizes generateKey function to kick off key generation.
-    key = generateKey(TYPE_RSA, 2048)
-    req.set_pubkey(key)
-    req.sign(key, "sha1")
-    generateFiles(csrfile, req)
-    generateFiles(keyfile, key)
-    return req
+        crypto.X509Extension("basicConstraints", False, "CA:FALSE"),])
+	x509_extensions = base_constraints
+	req.add_extensions(x509_extensions)
+	key = generateKey(TYPE_RSA, 2048)
+	req.set_pubkey(key)
+	req.sign(key, "sha1")
+	generateFiles(csrfile, req)
+	generateFiles(keyfile, key)
+	return req
 
-# Generate Private Key
+	
 def generateKey(type, bits):
-
-    key = crypto.PKey()
-    key.generate_key(type, bits)
-    return key
+	'''Generates private key for CSR generation'''
+	key = crypto.PKey()
+	key.generate_key(type, bits)
+	return key
     
-# Generate .csr/key files.
+
 def generateFiles(mkFile, request):
+	'''Generates CSR file and private key file used to generate CSR'''
+	if mkFile == str(args.name) + '.csr':
+		f = open(mkFile, "w")
+		f.write(crypto.dump_certificate_request(crypto.FILETYPE_PEM, request))
+		f.close()
+		print ("CSR below, copy and paste into StartSSL's certificates wizard\n")
+		print crypto.dump_certificate_request(crypto.FILETYPE_PEM, request)
+	elif mkFile == str(args.name) + '.key':
+		f = open(mkFile, "w")
+		f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, request))
+		f.close()
+	else:
+		print "Failed."
+		exit()
 
-    if mkFile == 'host.csr':
-        f = open(mkFile, "w")
-        f.write(crypto.dump_certificate_request(crypto.FILETYPE_PEM, request))
-        f.close()
-        print crypto.dump_certificate_request(crypto.FILETYPE_PEM, request)
-    elif mkFile == 'host.key':
-        f = open(mkFile, "w")
-        f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, request))
-        f.close()
-    else:
-        print "Failed."
-        exit()
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser()
+	parser.add_argument("name", help="Provide the FQDN", action="store")
+	args = parser.parse_args()
+
+	date = time.strftime('%Y%m%d')
+	fileName = args.name + '_' + str(date)
+
+	generateCSR(args.name)
+	wait = raw_input('Place zip file downloaded from StartSSL in same directory as script and press any key to continue')
+
+	#Extract nested zip file containging certificate chain
+	certPackage = zipfile.ZipFile(args.name + '.zip', 'r')
+	certPackageData = StringIO(certPackage.read('OtherServer.zip'))
+	otherCertZip = zipfile.ZipFile(certPackageData)
+
+	#Concatenante certificate with intermediate and root certificate
+	rootCert = otherCertZip.read('root.crt', 'r')
+	intermediateCert = otherCertZip.read('1_Intermediate.crt', 'r')
+	finalCert = otherCertZip.read('2_' +  args.name +'.crt', 'r')
+	concatCert = finalCert + intermediateCert + rootCert
+	certOut = open(fileName + '.crt', "w")
+	certOut.write(concatCert)
+	certOut.close()
+
+	#Generate PKCS12 certificate
+	pk12Cert = crypto.PKCS12()
+	keyFile=open(args.name + '.key', 'rt').read()
+	key=crypto.load_privatekey(crypto.FILETYPE_PEM, keyFile)
+	pk12Cert.set_privatekey(key)
+	cert=crypto.load_certificate(crypto.FILETYPE_PEM, concatCert)
+	pk12Cert.set_certificate(cert)
+	pk12CertFile = open(fileName + '.pfx', 'wb')
+	certPass = getpass.getpass('Password for PKCS12 file: ')
+	pk12CertFile.write(pk12Cert.export(passphrase=certPass))
+	pk12CertFile.close()
+
+	#Create subdirectroy for host and move all generated and downloaded files
+	os.mkdir(fileName)
+	shutil.move(fileName + '.pfx', fileName + '/' + fileName + '.pfx')
+	shutil.move(fileName + '.crt', fileName + '/' + fileName + '.crt')
+	shutil.move(args.name + '.key', fileName + '/' + args.name + '.key')
+	shutil.move(args.name + '.csr', fileName + '/' + args.name + '.csr')
+	shutil.move(args.name + '.zip', fileName + '/' + args.name + '.zip')
 
 
-# Run Portion
-parser = argparse.ArgumentParser()
-parser.add_argument("name", help="Provide the FQDN", action="store")
-parser.add_argument("-s", "--san", help="SANS", action="store", nargs='*', default="")
-args = parser.parse_args()
-
-hostname = args.name
-sans = args.san
-
-generateCSR(hostname, sans)
